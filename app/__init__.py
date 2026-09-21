@@ -1,0 +1,2 @@
+"""«Пойдём?» backend package."""
+

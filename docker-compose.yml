@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: poidem
+      POSTGRES_USER: poidem
+      POSTGRES_PASSWORD: poidem
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poidem"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: .
+    env_file: [.env]
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+  scheduler:
+    build: .
+    env_file: [.env]
+    environment: {PARSER_SCHEDULER_ENABLED: "true"}
+    depends_on:
+      db: {condition: service_healthy}
+    command: ["python", "-m", "app.scheduler"]
+volumes: {postgres_data: {}}
+
