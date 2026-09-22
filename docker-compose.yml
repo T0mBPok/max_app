@@ -6,24 +6,43 @@ services:
       POSTGRES_USER: poidem
       POSTGRES_PASSWORD: poidem
     volumes: [postgres_data:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U poidem"]
       interval: 5s
       timeout: 3s
       retries: 10
+  db-test:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: poidem_test
+      POSTGRES_USER: poidem
+      POSTGRES_PASSWORD: poidem
+    ports: ["5433:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poidem -d poidem_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
   api:
-    build: .
+    build: ./backend
     env_file: [.env]
     ports: ["8000:8000"]
     depends_on:
       db: {condition: service_healthy}
-    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    command: ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
   scheduler:
-    build: .
+    build: ./backend
     env_file: [.env]
     environment: {PARSER_SCHEDULER_ENABLED: "true"}
     depends_on:
       db: {condition: service_healthy}
-    command: ["python", "-m", "app.scheduler"]
+    command: ["python", "-m", "src.services.scheduler"]
 volumes: {postgres_data: {}}
-

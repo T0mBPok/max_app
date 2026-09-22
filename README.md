@@ -1,10 +1,31 @@
 # «Пойдём?» — backend MVP
 
 FastAPI-сервис для импорта мероприятий и секций Томска, создания возрастных комнат и
-совместного вступления. Архитектура разделена на HTTP API (`app/api`), бизнес-правила
-(`age.py`, `room_service.py`), асинхронные SQLAlchemy-модели и независимые адаптеры
-источников (`app/imports`). Импорт хранит связь с первоисточником и hash содержимого,
-поэтому повторный запуск идемпотентен.
+совместного вступления. Код организован по предметным модулям в `backend/src`:
+
+```text
+backend/
+├── migration/              # Alembic
+├── src/
+│   ├── activity/           # models, schemas, dao, router
+│   ├── classifiers/        # enum-классификаторы
+│   ├── common/             # возраст, базовые модели и схемы
+│   ├── imports/            # adapters, models, schemas, dao, logic, router
+│   ├── room/               # models, schemas, dao, logic, router
+│   ├── services/           # отдельный scheduler
+│   ├── user/               # models, schemas, dao, dependencies, router
+│   ├── config.py
+│   ├── database.py
+│   ├── exceptions.py
+│   └── main.py
+├── tests/
+├── alembic.ini
+├── pyproject.toml
+└── uv.lock
+```
+
+Импорт хранит связь с первоисточником и hash содержимого, поэтому повторный запуск
+идемпотентен.
 
 ## Запуск в Docker
 
@@ -32,11 +53,10 @@ docker compose exec api alembic downgrade -1
 Нужны Python 3.12+, `uv` и PostgreSQL.
 
 ```bash
+cd backend
 uv sync --dev
-cp .env.example .env
-# замените db в DATABASE_URL на localhost
-uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5432/poidem uv run alembic upgrade head
+DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5432/poidem uv run uvicorn src.main:app --reload
 ```
 
 Проверки:
@@ -46,11 +66,13 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Интеграционные тесты БД включаются только с отдельной базой (схема в ней удаляется
-после теста):
+Интеграционные тесты включаются только с отдельной базой (её схема удаляется после
+теста). Из корня репозитория:
 
 ```bash
-TEST_DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5432/poidem_test uv run pytest -q
+docker compose --profile test up -d db-test
+cd backend
+TEST_DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5433/poidem_test uv run pytest -q
 ```
 
 ## Импорт
@@ -58,10 +80,10 @@ TEST_DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5432/poidem_test 
 Через CLI:
 
 ```bash
-uv run python -m app.cli.imports run culture_ru
-uv run python -m app.cli.imports run tomsk_pfdo
-uv run python -m app.cli.imports run aquatika
-uv run python -m app.cli.imports run-all
+uv run python -m src.cli.imports run culture_ru
+uv run python -m src.cli.imports run tomsk_pfdo
+uv run python -m src.cli.imports run aquatika
+uv run python -m src.cli.imports run-all
 ```
 
 Или через `POST /api/v1/admin/imports/{source_code}/run`. Планировщик — отдельный
@@ -73,7 +95,7 @@ uv run python -m app.cli.imports run-all
 | Код | Получение | Состояние |
 |---|---|---|
 | `culture_ru` | JSON-LD официальной афиши, fallback на публичные HTML-ссылки | Рабочий HTML-адаптер |
-| `tomsk_pfdo` | публичная страница регионального навигатора | Рабочий HTML-адаптер; разметка SPA может меняться |
+| `tomsk_pfdo` | HTML, затем Playwright для динамической SPA | Playwright-fallback; Chromium и системные библиотеки устанавливаются Docker-образом |
 | `aquatika` | HTML официальной страницы расписания | Рабочий HTML-адаптер |
 
 У Культура.РФ существует предпочтительный Export API 2.5, но он требует партнёрский
@@ -104,5 +126,5 @@ API-ключ. Поэтому MVP не пытается обходить авто
 - Парсеры зависят от публичной HTML-разметки; ошибки отдельных записей считаются в
   `ImportRun`, исходные payload и URL сохраняются для диагностики.
 - Исчезнувшие записи не удаляются: после `STALE_AFTER_DAYS` они становятся `STALE`.
-- Playwright не добавлен: текущие источники отдают пригодный HTML; без необходимости
-  браузерный runtime не запускается.
+- Playwright запускается только как fallback для динамического ПФДО; два остальных
+  источника не расходуют браузерные ресурсы.
