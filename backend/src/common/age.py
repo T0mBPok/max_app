@@ -5,6 +5,7 @@ from src.classifiers.enums import AgePreset
 from src.exceptions import AppError
 
 PRESETS: dict[AgePreset, tuple[int, int | None, str]] = {
+    AgePreset.ALL: (0, None, "Все"),
     AgePreset.TEENS_12_17: (12, 17, "Подростки"),
     AgePreset.YOUTH_18_24: (18, 24, "Молодёжь"),
     AgePreset.ADULTS_25_39: (25, 39, "Молодые взрослые"),
@@ -26,8 +27,8 @@ def calculate_age(birth_date: date, on_date: date) -> int:
     )
 
 
-def is_age_eligible(age: int, min_age: int, max_age: int | None) -> bool:
-    return age >= min_age and (max_age is None or age <= max_age)
+def is_age_eligible(age: int, min_age: int | None, max_age: int | None) -> bool:
+    return (min_age is None or age >= min_age) and (max_age is None or age <= max_age)
 
 
 def validate_age_range(min_age: int, max_age: int | None) -> None:
@@ -46,7 +47,7 @@ def build_age_label(min_age: int, max_age: int | None, preset: AgePreset | None 
 
 def resolve_age_range(
     preset: AgePreset, min_age: int | None, max_age: int | None
-) -> tuple[int, int | None]:
+) -> tuple[int | None, int | None]:
     if preset != AgePreset.CUSTOM:
         return PRESETS[preset][:2]
     if min_age is None:

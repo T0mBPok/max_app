@@ -20,15 +20,6 @@ class SourceOut(ORMModel):
     enabled: bool
 
 
-class OccurrenceOut(ORMModel):
-    id: uuid.UUID
-    activity_id: uuid.UUID
-    starts_at: datetime
-    ends_at: datetime | None
-    registration_deadline: datetime | None
-    capacity: int | None
-
-
 class ActivityOut(ORMModel):
     id: uuid.UUID
     type: ActivityType
@@ -47,4 +38,6 @@ class ActivityOut(ORMModel):
     image_url: str | None
     registration_url: str | None
     schedule_text: str | None
+    starts_at: datetime | None
+    ends_at: datetime | None
     status: ActivityStatus

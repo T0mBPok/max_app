@@ -29,6 +29,8 @@ async def test_room_owner_age_join_and_capacity(session):
         title="Секция",
         category_id=category.id,
         city="Томск",
+        address="У входа",
+        starts_at=now_utc() + timedelta(days=1),
         status=ActivityStatus.ACTIVE,
     )
     session.add(activity)
@@ -42,11 +44,11 @@ async def test_room_owner_age_join_and_capacity(session):
             age_preset=AgePreset.YOUTH_18_24,
             capacity=2,
             join_policy=JoinPolicy.OPEN,
-            meeting_at=now_utc() + timedelta(days=1),
-            meeting_point="У входа",
         ),
     )
     output = await room_out(session, room, owner)
+    assert output.meeting_at == activity.starts_at
+    assert output.meeting_point == activity.address
     assert output.is_owner and output.members_count == 1
 
     with pytest.raises(AppError) as exc:

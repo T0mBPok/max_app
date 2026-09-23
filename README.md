@@ -80,13 +80,21 @@ TEST_DATABASE_URL=postgresql+asyncpg://poidem:poidem@localhost:5433/poidem_test 
 Через CLI:
 
 ```bash
-uv run python -m src.cli.imports run culture_ru
+uv run python -m src.cli.imports run tomsk_philharmonic
 uv run python -m src.cli.imports run tomsk_pfdo
 uv run python -m src.cli.imports run aquatika
+uv run python -m src.cli.imports run dobro_tomsk
+uv run python -m src.cli.imports run five_verst_tomsk_training
+uv run python -m src.cli.imports run five_verst_tomsk_volunteer
 uv run python -m src.cli.imports run-all
 ```
 
-Или через `POST /api/v1/admin/imports/{source_code}/run`. Планировщик — отдельный
+Через API доступны понятные ручки `POST /api/v1/admin/imports/events/run`,
+`POST /api/v1/admin/imports/courses/run`, `POST /api/v1/admin/imports/sections/run`,
+`POST /api/v1/admin/imports/volunteering/run`
+и общий запуск `POST /api/v1/admin/imports/run-all`. Список загрузчиков вместе с
+последним результатом возвращает `GET /api/v1/admin/imports/sources`. Универсальная
+ручка `POST /api/v1/admin/imports/{source_code}/run` также сохранена. Планировщик — отдельный
 контейнер и при `PARSER_SCHEDULER_ENABLED=true` запускает импорт ежедневно в 03:00
 по Томску. В Uvicorn планировщика нет.
 
@@ -94,16 +102,20 @@ uv run python -m src.cli.imports run-all
 
 | Код | Получение | Состояние |
 |---|---|---|
-| `culture_ru` | JSON-LD официальной афиши, fallback на публичные HTML-ссылки | Рабочий HTML-адаптер |
-| `tomsk_pfdo` | HTML, затем Playwright для динамической SPA | Playwright-fallback; Chromium и системные библиотеки устанавливаются Docker-образом |
+| `tomsk_philharmonic` | Публичная афиша официального сайта Томской филармонии | Рабочий HTML-адаптер |
+| `tomsk_pfdo` | HTML и headless Chromium: прокрутка SPA, разбор DOM и перехват JSON-ответов страницы | Chromium и системные библиотеки устанавливаются Docker-образом |
 | `aquatika` | HTML официальной страницы расписания | Рабочий HTML-адаптер |
+| `dobro_tomsk` | JSON-LD карточек Добро.рф, Chromium для динамического списка | Только конкретные будущие события Томска до 7 дней |
+| `five_verst_tomsk_training` | Еженедельное расписание страницы «5 вёрст» | Создаёт конкретные старты на ближайшие 21 день |
+| `five_verst_tomsk_volunteer` | Таблица будущих волонтёрских дат «5 вёрст» | Рабочий HTML-адаптер |
 
-У Культура.РФ существует предпочтительный Export API 2.5, но он требует партнёрский
-API-ключ. Поэтому MVP не пытается обходить авторизацию и использует публичную афишу.
+Первоначально использовалась афиша Культура.РФ, но её `robots.txt` запрещает
+автоматический доступ. Источник заменён на официальный сайт Томской областной
+государственной филармонии; его публичная афиша разрешена для загрузки.
 Перед запросами выдерживается настраиваемая задержка, используются timeout и
 экспоненциальные повторы. CAPTCHA, блокировки и авторизация не обходятся. Если сайт
 откажет автоматическому клиенту, импорт завершится контролируемой ошибкой
-`PARSER_SOURCE_UNAVAILABLE`.
+`PARSER_SOURCE_UNAVAILABLE`; конкретная техническая причина будет в `error.details.reason`.
 
 ## Проверка сценария в Swagger
 
@@ -111,7 +123,7 @@ API-ключ. Поэтому MVP не пытается обходить авто
 2. Скопируйте UUID нужного пользователя в заголовок `X-Debug-User-Id` всех защищённых
    запросов. Этот механизм существует только в `development` и `test`.
 3. Запустите импорт и выберите активность.
-4. Создайте комнату через `POST /api/v1/rooms`, передав время с часовым поясом.
+4. Создайте комнату через `POST /api/v1/rooms`; время и место возьмутся из активности.
 5. Переключите UUID заголовка и выполните прямое вступление либо создайте заявку.
 
 Возраст всегда вычисляется из `birth_date` на текущую дату. Диапазоны, пересекающие
@@ -125,6 +137,7 @@ API-ключ. Поэтому MVP не пытается обходить авто
 - Нет чата, уведомлений, оплаты, карт, отзывов и frontend.
 - Парсеры зависят от публичной HTML-разметки; ошибки отдельных записей считаются в
   `ImportRun`, исходные payload и URL сохраняются для диагностики.
-- Исчезнувшие записи не удаляются: после `STALE_AFTER_DAYS` они становятся `STALE`.
-- Playwright запускается только как fallback для динамического ПФДО; два остальных
-  источника не расходуют браузерные ресурсы.
+- Исчезнувшие записи не удаляются: обычно после `STALE_AFTER_DAYS` они становятся
+  `STALE`. Для регулярных расписаний это происходит сразу после успешной проверки
+  источника, если слот исчез.
+- Playwright запускается только как fallback для динамических страниц ПФДО и Добро.рф.

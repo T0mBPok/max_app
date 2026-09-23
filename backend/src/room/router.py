@@ -54,7 +54,6 @@ async def list_rooms(
     user: CurrentUser,
     session: SessionDep,
     activity_id: uuid.UUID | None = None,
-    occurrence_id: uuid.UUID | None = None,
     city: str | None = None,
     status: RoomStatus | None = None,
     age_preset: AgePreset | None = None,
@@ -66,8 +65,6 @@ async def list_rooms(
     stmt = select(Room)
     if activity_id:
         stmt = stmt.where(Room.activity_id == activity_id)
-    if occurrence_id:
-        stmt = stmt.where(Room.occurrence_id == occurrence_id)
     if status:
         stmt = stmt.where(Room.status == status)
     if age_preset:

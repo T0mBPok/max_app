@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     parser_max_retries: int = 3
     parser_request_delay_seconds: float = 1
     stale_after_days: int = 7
+    recurring_activity_horizon_days: int = 21
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     @property

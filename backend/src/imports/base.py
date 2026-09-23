@@ -67,8 +67,14 @@ class ActivitySourceAdapter(ABC):
     base_url: str
     user_agent = "PoidemBot/0.1"
     allow_empty = False
+    stale_missing_immediately = False
 
     async def ensure_allowed(self, client: httpx.AsyncClient, url: str) -> None:
+        cached_parser = getattr(self, "_robots_parser", None)
+        if cached_parser is not None:
+            if not cached_parser.can_fetch(self.user_agent, url):
+                raise SourceAccessDenied("robots.txt запрещает автоматический доступ")
+            return
         robots_url = urljoin(self.base_url, "/robots.txt")
         try:
             response = await client.get(robots_url)
@@ -78,6 +84,7 @@ class ActivitySourceAdapter(ABC):
                 parser = RobotFileParser()
                 parser.set_url(robots_url)
                 parser.parse(response.text.splitlines())
+                self._robots_parser = parser
                 if not parser.can_fetch(self.user_agent, url):
                     raise SourceAccessDenied("robots.txt запрещает автоматический доступ")
         except httpx.HTTPError:
@@ -104,7 +111,8 @@ class ActivitySourceAdapter(ABC):
                 except (httpx.HTTPError, TimeoutError) as exc:
                     error = exc
                     await asyncio.sleep(min(2**attempt, 8))
-        raise RuntimeError(f"Источник недоступен: {error}")
+        reason = f"{type(error).__name__}: {error}" if error else "неизвестная ошибка"
+        raise RuntimeError(f"Источник недоступен: {reason}")
 
     @abstractmethod
     async def fetch(self) -> list[dict]: ...

@@ -8,6 +8,8 @@ from src.common.schemas import ORMModel
 class ImportRunOut(ORMModel):
     id: uuid.UUID
     source_id: uuid.UUID
+    source_code: str | None = None
+    source_name: str | None = None
     status: ImportStatus
     started_at: datetime
     finished_at: datetime | None
@@ -18,3 +20,12 @@ class ImportRunOut(ORMModel):
     skipped_count: int
     error_count: int
     error_message: str | None
+
+
+class ImportSourceOut(ORMModel):
+    code: str
+    name: str
+    base_url: str
+    enabled: bool
+    last_successful_run_at: datetime | None
+    last_run: ImportRunOut | None

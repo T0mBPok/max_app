@@ -28,6 +28,7 @@ class ImportStatus(enum.StrEnum):
 
 
 class AgePreset(enum.StrEnum):
+    ALL = "ALL"
     TEENS_12_17 = "TEENS_12_17"
     YOUTH_18_24 = "YOUTH_18_24"
     ADULTS_25_39 = "ADULTS_25_39"

@@ -1,6 +1,22 @@
-from src.imports.adapters import AquatikaAdapter, CultureRuAdapter, TomskPfdoAdapter
+from src.imports.adapters import (
+    AquatikaAdapter,
+    DobroTomskAdapter,
+    FiveVerstTrainingAdapter,
+    FiveVerstVolunteerAdapter,
+    TomskPfdoAdapter,
+    TomskPhilharmonicAdapter,
+)
+
+VOLUNTEERING_SOURCE_CODES = ("dobro_tomsk", "five_verst_tomsk_volunteer")
 
 adapters = {
     adapter.source_code: adapter
-    for adapter in (CultureRuAdapter(), TomskPfdoAdapter(), AquatikaAdapter())
+    for adapter in (
+        TomskPhilharmonicAdapter(),
+        TomskPfdoAdapter(),
+        AquatikaAdapter(),
+        DobroTomskAdapter(),
+        FiveVerstTrainingAdapter(),
+        FiveVerstVolunteerAdapter(),
+    )
 }

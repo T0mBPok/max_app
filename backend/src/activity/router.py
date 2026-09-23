@@ -5,8 +5,8 @@ from fastapi import APIRouter, Query
 from sqlalchemy import func, or_, select
 
 from src.activity.dao import get_activity
-from src.activity.models import Activity, ActivityOccurrence, Category
-from src.activity.schemas import ActivityOut, CategoryOut, OccurrenceOut, SourceOut
+from src.activity.models import Activity, Category
+from src.activity.schemas import ActivityOut, CategoryOut, SourceOut
 from src.classifiers.enums import ActivityStatus, ActivityType, RoomStatus
 from src.common.schemas import Page
 from src.exceptions import not_found
@@ -57,17 +57,20 @@ async def activities(
             or_(Activity.title.ilike(f"%{search}%"), Activity.description.ilike(f"%{search}%"))
         )
     if date_from or date_to:
-        stmt = stmt.join(ActivityOccurrence)
         if date_from:
-            stmt = stmt.where(ActivityOccurrence.starts_at >= date_from)
+            stmt = stmt.where(Activity.starts_at >= date_from)
         if date_to:
-            stmt = stmt.where(ActivityOccurrence.starts_at <= date_to)
+            stmt = stmt.where(Activity.starts_at <= date_to)
     if has_open_rooms:
-        stmt = stmt.join(Room).where(Room.status == RoomStatus.OPEN)
+        open_room = select(Room.id).where(
+            Room.activity_id == Activity.id, Room.status == RoomStatus.OPEN
+        )
+        stmt = stmt.where(open_room.exists())
     total = await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    items = (
-        await session.scalars(stmt.distinct().offset((page - 1) * page_size).limit(page_size))
-    ).all()
+    stmt = stmt.order_by(
+        Activity.starts_at.is_(None), Activity.starts_at.asc(), Activity.created_at.desc()
+    )
+    items = (await session.scalars(stmt.offset((page - 1) * page_size).limit(page_size))).all()
     return {
         "items": [ActivityOut.model_validate(x) for x in items],
         "page": page,
@@ -82,17 +85,6 @@ async def activity(activity_id: uuid.UUID, session: SessionDep):
     if not item:
         raise not_found("ACTIVITY_NOT_FOUND", "Активность не найдена")
     return item
-
-
-@router.get("/activities/{activity_id}/occurrences", response_model=list[OccurrenceOut])
-async def occurrences(activity_id: uuid.UUID, session: SessionDep):
-    return (
-        await session.scalars(
-            select(ActivityOccurrence)
-            .where(ActivityOccurrence.activity_id == activity_id)
-            .order_by(ActivityOccurrence.starts_at)
-        )
-    ).all()
 
 
 @router.get("/categories", response_model=list[CategoryOut])

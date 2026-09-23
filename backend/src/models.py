@@ -1,6 +1,6 @@
 """Совместимый фасад; ORM-модели определены внутри предметных модулей."""
 
-from src.activity.models import Activity, ActivityOccurrence, Category, Venue
+from src.activity.models import Activity, Category, Venue
 from src.classifiers.enums import (
     ActivityStatus,
     ActivityType,
@@ -20,7 +20,6 @@ from src.user.models import User
 
 __all__ = [
     "Activity",
-    "ActivityOccurrence",
     "ActivityStatus",
     "ActivityType",
     "AgePreset",

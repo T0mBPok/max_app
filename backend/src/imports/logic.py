@@ -3,7 +3,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.activity.models import Activity, ActivityOccurrence, Category
+from src.activity.models import Activity, Category
 from src.classifiers.enums import ActivityStatus, ImportStatus
 from src.common.models import now_utc
 from src.config import get_settings
@@ -54,7 +54,12 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                 record = await get_source_record(session, source.id, item.external_id)
                 if record and record.content_hash == digest:
                     record.last_seen_at = now_utc()
-                    run.unchanged_count += 1
+                    activity = await session.get(Activity, record.activity_id)
+                    if activity.status == ActivityStatus.STALE:
+                        activity.status = ActivityStatus.ACTIVE
+                        run.updated_count += 1
+                    else:
+                        run.unchanged_count += 1
                     await savepoint.commit()
                     continue
                 category = await session.scalar(
@@ -83,6 +88,8 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                         "image_url",
                         "registration_url",
                         "schedule_text",
+                        "starts_at",
+                        "ends_at",
                     )
                 }
                 if record:
@@ -97,22 +104,6 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                     record.last_seen_at = now_utc()
                     record.source_updated_at = item.source_updated_at
                     run.updated_count += 1
-                    if item.starts_at:
-                        occurrence = await session.scalar(
-                            select(ActivityOccurrence).where(
-                                ActivityOccurrence.activity_id == activity.id
-                            )
-                        )
-                        if occurrence:
-                            occurrence.starts_at, occurrence.ends_at = item.starts_at, item.ends_at
-                        else:
-                            session.add(
-                                ActivityOccurrence(
-                                    activity_id=activity.id,
-                                    starts_at=item.starts_at,
-                                    ends_at=item.ends_at,
-                                )
-                            )
                 else:
                     activity = None
                     if item.address or item.starts_at:
@@ -124,9 +115,7 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                         if item.address:
                             duplicate = duplicate.where(Activity.address == item.address)
                         if item.starts_at:
-                            duplicate = duplicate.join(ActivityOccurrence).where(
-                                ActivityOccurrence.starts_at == item.starts_at
-                            )
+                            duplicate = duplicate.where(Activity.starts_at == item.starts_at)
                         activity = await session.scalar(duplicate.limit(1))
                     if not activity:
                         activity = Activity(
@@ -134,14 +123,6 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                         )
                         session.add(activity)
                         await session.flush()
-                        if item.starts_at:
-                            session.add(
-                                ActivityOccurrence(
-                                    activity_id=activity.id,
-                                    starts_at=item.starts_at,
-                                    ends_at=item.ends_at,
-                                )
-                            )
                         run.created_count += 1
                     else:
                         run.unchanged_count += 1
@@ -162,14 +143,11 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
                 await savepoint.rollback()
                 run.error_count += 1
                 run.skipped_count += 1
-        cutoff = now_utc() - timedelta(days=get_settings().stale_after_days)
-        old_records = (
-            await session.scalars(
-                select(SourceRecord).where(
-                    SourceRecord.source_id == source.id, SourceRecord.last_seen_at < cutoff
-                )
-            )
-        ).all()
+        old_records_query = select(SourceRecord).where(SourceRecord.source_id == source.id)
+        if not adapter.stale_missing_immediately:
+            cutoff = now_utc() - timedelta(days=get_settings().stale_after_days)
+            old_records_query = old_records_query.where(SourceRecord.last_seen_at < cutoff)
+        old_records = (await session.scalars(old_records_query)).all()
         for record in old_records:
             if record.external_id not in seen:
                 activity = await session.get(Activity, record.activity_id)
@@ -183,5 +161,11 @@ async def run_import(session: AsyncSession, adapter: ActivitySourceAdapter) -> I
         run.finished_at = now_utc()
         run.error_message = str(exc)[:2000]
         await session.commit()
-        raise AppError("PARSER_SOURCE_UNAVAILABLE", "Источник временно недоступен", 503) from exc
+        reason = str(exc) or type(exc).__name__
+        raise AppError(
+            "PARSER_SOURCE_UNAVAILABLE",
+            "Источник временно недоступен",
+            503,
+            {"source": adapter.source_code, "reason": reason[:500]},
+        ) from exc
     return run

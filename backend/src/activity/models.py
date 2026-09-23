@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from src.classifiers.enums import ActivityStatus, ActivityType
 from src.common.models import TimestampMixin
@@ -50,20 +50,8 @@ class Activity(TimestampMixin, Base):
     image_url: Mapped[str | None] = mapped_column(String(1000))
     registration_url: Mapped[str | None] = mapped_column(String(1000))
     schedule_text: Mapped[str | None] = mapped_column(Text)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[ActivityStatus] = mapped_column(
         Enum(ActivityStatus), default=ActivityStatus.ACTIVE, index=True
     )
-    occurrences: Mapped[list["ActivityOccurrence"]] = relationship(cascade="all, delete-orphan")
-
-
-class ActivityOccurrence(TimestampMixin, Base):
-    __tablename__ = "activity_occurrences"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    activity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("activities.id", ondelete="CASCADE"), index=True
-    )
-    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    registration_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    capacity: Mapped[int | None] = mapped_column(Integer)

@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.activity.dao import get_activity
-from src.activity.models import ActivityOccurrence
+from src.activity.models import Venue
 from src.classifiers.enums import ActivityStatus, JoinPolicy, MemberRole, MemberStatus, RoomStatus
 from src.common.age import (
     build_age_label,
@@ -32,9 +32,16 @@ async def room_out(session: AsyncSession, room: Room, user: User) -> RoomOut:
     count = await active_members_count(session, room.id)
     member = await get_member(session, room.id, user.id, only_active=True)
     eligible, reason = eligibility(room, user)
+    activity = await get_activity(session, room.activity_id)
+    venue = await session.get(Venue, activity.venue_id) if activity and activity.venue_id else None
+    meeting_point = activity.address if activity else None
+    if not meeting_point and venue:
+        meeting_point = venue.address or venue.name
     return RoomOut.model_validate(
         {
             **{c.name: getattr(room, c.name) for c in room.__table__.columns},
+            "meeting_at": activity.starts_at if activity else None,
+            "meeting_point": meeting_point,
             "members_count": count,
             "free_seats": max(room.capacity - count, 0),
             "is_full": count >= room.capacity,
@@ -47,40 +54,107 @@ async def room_out(session: AsyncSession, room: Room, user: User) -> RoomOut:
     )
 
 
-async def create_room(session: AsyncSession, user: User, data: RoomCreate) -> Room:
+async def create_room(
+    session: AsyncSession,
+    user: User,
+    data: RoomCreate,
+) -> Room:
     activity = await get_activity(session, data.activity_id)
+
     if not activity:
-        raise not_found("ACTIVITY_NOT_FOUND", "Активность не найдена")
-    if activity.status in {ActivityStatus.ARCHIVED, ActivityStatus.CANCELLED}:
-        raise AppError("ROOM_CLOSED", "Для этой активности нельзя создать комнату", 409)
-    min_age, max_age = resolve_age_range(data.age_preset, data.min_age, data.max_age)
-    validate_age_range(min_age, max_age)
-    age = calculate_age(user.birth_date, today_tomsk())
+        raise not_found(
+            "ACTIVITY_NOT_FOUND",
+            "Активность не найдена",
+        )
+
+    if activity.status in {
+        ActivityStatus.ARCHIVED,
+        ActivityStatus.CANCELLED,
+    }:
+        raise AppError(
+            "ROOM_CLOSED",
+            "Для этой активности нельзя создать комнату",
+            409,
+        )
+
+    min_age, max_age = resolve_age_range(
+        data.age_preset,
+        data.min_age,
+        data.max_age,
+    )
+    if min_age is not None:
+        validate_age_range(min_age, max_age)
+
+    age = calculate_age(
+        user.birth_date,
+        today_tomsk(),
+    )
+
     if not is_age_eligible(age, min_age, max_age):
-        raise AppError("ROOM_AGE_RESTRICTION", "Возраст создателя не соответствует комнате", 403)
-    if activity.audience_min_age is not None and min_age < activity.audience_min_age:
-        raise AppError("INVALID_AGE_RANGE", "Диапазон комнаты шире ограничений активности")
+        raise AppError(
+            "ROOM_AGE_RESTRICTION",
+            "Возраст создателя не соответствует комнате",
+            403,
+        )
+
+    if activity.audience_min_age is not None and (
+        min_age is None or min_age < activity.audience_min_age
+    ):
+        raise AppError(
+            "INVALID_AGE_RANGE",
+            "Диапазон комнаты шире ограничений активности",
+        )
+
     if activity.audience_max_age is not None and (
         max_age is None or max_age > activity.audience_max_age
     ):
-        raise AppError("INVALID_AGE_RANGE", "Диапазон комнаты шире ограничений активности")
-    meeting_at = data.meeting_at.astimezone(now_utc().tzinfo)
-    if meeting_at <= now_utc():
-        raise AppError("ROOM_CLOSED", "Время встречи уже прошло")
-    if data.occurrence_id:
-        occurrence = await session.get(ActivityOccurrence, data.occurrence_id)
-        if not occurrence or occurrence.activity_id != activity.id:
-            raise AppError("ACTIVITY_NOT_FOUND", "Дата активности не найдена", 404)
-        if meeting_at > occurrence.starts_at:
-            raise AppError("ROOM_CLOSED", "Встреча должна быть до начала события")
+        raise AppError(
+            "INVALID_AGE_RANGE",
+            "Диапазон комнаты шире ограничений активности",
+        )
+
+    current_time = now_utc()
+    if not activity.starts_at:
+        raise AppError(
+            "ACTIVITY_TIME_NOT_FOUND",
+            "У активности не указано время проведения",
+            409,
+        )
+
+    meeting_at = activity.starts_at.astimezone(current_time.tzinfo)
+    if meeting_at <= current_time:
+        raise AppError(
+            "ROOM_CLOSED",
+            "Мероприятие уже началось или завершилось",
+            409,
+        )
+
+    venue = await session.get(Venue, activity.venue_id) if activity.venue_id else None
+    meeting_point = activity.address or (venue.address if venue else None)
+    if not meeting_point and venue:
+        meeting_point = venue.name
+    if not meeting_point:
+        raise AppError(
+            "ACTIVITY_LOCATION_NOT_FOUND",
+            "У активности не указано место проведения",
+            409,
+        )
+
     room = Room(
-        **data.model_dump(exclude={"min_age", "max_age"}),
+        **data.model_dump(
+            exclude={
+                "min_age",
+                "max_age",
+            }
+        ),
         min_age=min_age,
         max_age=max_age,
         owner_id=user.id,
     )
+
     session.add(room)
     await session.flush()
+
     session.add(
         RoomMember(
             room_id=room.id,
@@ -90,8 +164,10 @@ async def create_room(session: AsyncSession, user: User, data: RoomCreate) -> Ro
             confirmed_at=now_utc(),
         )
     )
+
     await session.commit()
     await session.refresh(room)
+
     return room
 
 
@@ -105,15 +181,6 @@ async def update_room(session: AsyncSession, room: Room, data: RoomUpdate) -> Ro
             room.status = (
                 RoomStatus.FULL if changes["capacity"] == members_count else RoomStatus.OPEN
             )
-    if meeting_at := changes.get("meeting_at"):
-        meeting_at = meeting_at.astimezone(now_utc().tzinfo)
-        if meeting_at <= now_utc():
-            raise AppError("ROOM_CLOSED", "Время встречи уже прошло")
-        if room.occurrence_id:
-            occurrence = await session.get(ActivityOccurrence, room.occurrence_id)
-            if occurrence and meeting_at > occurrence.starts_at:
-                raise AppError("ROOM_CLOSED", "Встреча должна быть до начала события")
-        changes["meeting_at"] = meeting_at
     for key, value in changes.items():
         setattr(room, key, value)
     await session.commit()

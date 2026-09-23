@@ -22,7 +22,6 @@ class Room(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("activities.id"), index=True)
-    occurrence_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("activity_occurrences.id"))
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     title: Mapped[str] = mapped_column(String(250))
     description: Mapped[str | None] = mapped_column(Text)
@@ -32,8 +31,6 @@ class Room(TimestampMixin, Base):
     capacity: Mapped[int] = mapped_column(Integer)
     join_policy: Mapped[JoinPolicy] = mapped_column(Enum(JoinPolicy))
     status: Mapped[RoomStatus] = mapped_column(Enum(RoomStatus), default=RoomStatus.OPEN)
-    meeting_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    meeting_point: Mapped[str] = mapped_column(String(500))
 
 
 class RoomMember(Base):

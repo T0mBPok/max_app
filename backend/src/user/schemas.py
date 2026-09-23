@@ -10,7 +10,6 @@ class UserCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=200)
     birth_date: date
     city: str = "Томск"
-    external_id: str | None = None
     avatar_url: str | None = None
 
     @field_validator("birth_date")
